@@ -1,0 +1,120 @@
+#include "stdio.h"
+#include "string.h"
+
+EXEC SQL BEGIN DECLARE SECTION;
+VARCHAR uid[80];
+VARCHAR pwd[20];
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE SQLCA.H;
+
+#define TABLE_NAME_SIZE 80
+
+void dumpDecTable(char *);
+
+void dumpdec(char *name_pattern)
+{
+	EXEC SQL BEGIN DECLARE SECTION;
+	VARCHAR table_name[TABLE_NAME_SIZE];
+	EXEC SQL END DECLARE SECTION;
+
+   strcpy(uid.arr,"geo@BIA");
+   uid.len =strlen(uid.arr);
+   strcpy(pwd.arr,"geo");
+   pwd.len = strlen(pwd.arr);
+
+   EXEC SQL WHENEVER SQLERROR GOTO errexit;
+   EXEC SQL CONNECT :uid IDENTIFIED BY :pwd;
+
+	EXEC SQL DECLARE table_cursor CURSOR FOR
+		SELECT TABLE_NAME
+		FROM USER_CATALOG
+		WHERE TABLE_NAME LIKE UPPER(:name_pattern)
+		AND ( TABLE_TYPE='TABLE' OR TABLE_TYPE='VIEW' )
+		ORDER BY TABLE_NAME;
+
+	EXEC SQL OPEN table_cursor;
+	EXEC SQL WHENEVER NOT FOUND GOTO exitloop;
+
+	for (;;)
+		{
+		memset(table_name.arr, 0, TABLE_NAME_SIZE);
+		EXEC SQL FETCH table_cursor
+			INTO :table_name;
+		dumpDecTable(table_name.arr);
+		}
+	exitloop:
+	EXEC SQL CLOSE table_cursor;
+
+   goto normalexit;
+
+normalexit:
+   EXEC SQL COMMIT WORK RELEASE;
+   return;
+
+errexit:
+   printf("Error: %70s", sqlca.sqlerrm.sqlerrmc);
+}
+
+
+void dumpDecTable(char *table_name_str)
+{
+	EXEC SQL BEGIN DECLARE SECTION;
+	VARCHAR table_name[TABLE_NAME_SIZE];
+	VARCHAR column_name[TABLE_NAME_SIZE];
+	VARCHAR data_type[TABLE_NAME_SIZE];
+	int data_length;
+	int data_precision;
+	EXEC SQL END DECLARE SECTION;
+	int first=1;
+	char data_type_str[TABLE_NAME_SIZE];
+
+	memcpy(table_name.arr, table_name_str, TABLE_NAME_SIZE);
+	table_name.len= strlen(table_name_str);
+
+	printf("EXEC SQL DECLARE %s TABLE (\n", table_name_str);
+
+	EXEC SQL DECLARE column_cursor CURSOR FOR
+		SELECT COLUMN_NAME, DATA_TYPE, NVL(data_length,0), NVL(data_precision, 0)
+		FROM ALL_TAB_COLUMNS
+		WHERE TABLE_NAME= :table_name_str
+		ORDER BY COLUMN_ID;
+
+	EXEC SQL OPEN column_cursor;
+	EXEC SQL WHENEVER NOT FOUND GOTO endcolumns;
+
+	for (;;)
+		{
+		memset(column_name.arr, 0, TABLE_NAME_SIZE);
+		memset(data_type.arr, 0, TABLE_NAME_SIZE);
+		data_length=0;
+		data_precision=0;
+		EXEC SQL FETCH column_cursor
+			INTO :column_name, :data_type, :data_length, :data_precision;
+
+		if (strcmp(data_type.arr, "NUMBER")==0 && data_precision>0) {
+			sprintf(data_type_str, "NUMBER(%d)", data_precision);
+		}
+		else if (strcmp(data_type.arr, "RAW")==0 && data_length>0) {
+			sprintf(data_type_str, "RAW(%d)", data_length);
+		}
+		else if (strcmp(data_type.arr, "VARCHAR2")==0 && data_length>0) {
+			sprintf(data_type_str, "VARCHAR2(%d)", data_length);
+		}
+		else {
+			sprintf(data_type_str, "%s", data_type.arr);
+		}
+
+		printf("%s	%s	%s", first?"": ",\n", column_name.arr, data_type_str);
+		first=0;
+		}
+
+	endcolumns:
+	EXEC SQL CLOSE column_cursor;
+	printf("\n	);\n\n");
+	return;
+
+	errexit:
+	printf("Error: %70s", sqlca.sqlerrm.sqlerrmc);
+	return;
+}
